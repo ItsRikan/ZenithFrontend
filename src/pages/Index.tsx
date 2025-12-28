@@ -5,21 +5,24 @@ import { ContactCard } from '@/components/ContactCard';
 import { RecruiterMarquee } from '@/components/RecruiterMarquee';
 import { AdmissionSupport } from '@/components/AdmissionSupport';
 import { InquiryPreview } from '@/components/chat/InquiryPreview';
+import { MailPreview } from '@/components/chat/MailPreview';
 import type { Message } from '@/types/chat';
 import { generateCollegeResponse, QUICK_QUESTIONS } from '@/data/collegeData';
 import { getSessionId } from '@/lib/userId';
+import api from '@/data/externalRequest';
 import { ExternalLink, MessageSquare, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
 import { Footer } from '@/components/Footer';
 
-type InquiryStep = 'idle' | 'collecting_name' | 'collecting_email' | 'collecting_message' | 'preview' | 'sending' | 'sent';
+type InquiryStep = 'idle' | 'collecting_name' | 'collecting_email' | 'collecting_message' | 'preview' | 'sending' | 'sent' | 'mail_preview' | 'mail_sending' | 'mail_sent';
 
 export default function Index() {
     const [messages, setMessages] = useState<Message[]>([]);
     const [isTyping, setIsTyping] = useState(false);
     const [inquiryStep, setInquiryStep] = useState<InquiryStep>('idle');
     const [inquiryData, setInquiryData] = useState({ name: '', email: '', message: '' });
+    const [mailData, setMailData] = useState({ draft: '', message: '', department: '' });
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const [_sessionId, setSessionId] = useState<string>('');
 
@@ -102,23 +105,61 @@ export default function Index() {
         // 3. Standard Chat Behavior
         setIsTyping(true);
         const delay = 800 + Math.random() * 1200;
-        setTimeout(() => {
-            const responseText = generateCollegeResponse(text);
-            addBotMessage(responseText);
+        setTimeout(async () => {
+            const response = await generateCollegeResponse(text);
+            if (typeof response === 'string') {
+                addBotMessage(response);
+            } else if (response.type === 'mail_preview') {
+                setMailData({ draft: response.draft, message: response.message, department: response.department });
+                setInquiryStep('mail_preview');
+                addBotMessage("Here's the mail draft for review. Please confirm to send.");
+            }
         }, delay);
     };
 
-    const handleConfirmInquiry = () => {
+    const handleConfirmInquiry = async () => {
         setInquiryStep('sending');
-        // Simulate API call
-        setTimeout(() => {
+        try {
+            await api.post('/send_inquiry', inquiryData);
             setInquiryStep('sent');
             // Reset to idle after 5 seconds or keep as is
             setTimeout(() => {
                 setInquiryStep('idle');
                 setInquiryData({ name: '', email: '', message: '' });
             }, 5000);
-        }, 2000);
+        } catch (error) {
+            console.error(error);
+            addBotMessage("Sorry, there was an error sending your inquiry. Please try again.");
+            setInquiryStep('preview');
+        }
+    };
+
+    const handleConfirmMail = async () => {
+        setInquiryStep('mail_sending');
+        try {
+            const result = await api.post('/send_mail', { draft: mailData.draft, department: mailData.department });
+            if (result.data.status === 'succeed') {
+                setInquiryStep('mail_sent');
+                addBotMessage(result.data.message);
+                setTimeout(() => {
+                    setInquiryStep('idle');
+                    setMailData({ draft: '', message: '', department: '' });
+                }, 5000);
+            } else {
+                addBotMessage(result.data.message);
+                setInquiryStep('mail_preview');
+            }
+        } catch (error) {
+            console.error(error);
+            addBotMessage("Sorry, there was an error sending the mail. Please try again.");
+            setInquiryStep('mail_preview');
+        }
+    };
+
+    const handleCancelMail = () => {
+        setInquiryStep('idle');
+        setMailData({ draft: '', message: '', department: '' });
+        addBotMessage("You canceled the mail.");
     };
 
     const handleEditInquiry = () => {
@@ -193,6 +234,16 @@ export default function Index() {
                                     onConfirm={handleConfirmInquiry}
                                     onEdit={handleEditInquiry}
                                     status={inquiryStep === 'sent' ? 'sent' : inquiryStep === 'sending' ? 'sending' : 'preview'}
+                                />
+                            )}
+                            {inquiryStep !== 'idle' && (inquiryStep === 'mail_preview' || inquiryStep === 'mail_sending' || inquiryStep === 'mail_sent') && (
+                                <MailPreview
+                                    draft={mailData.draft}
+                                    message={mailData.message}
+                                    department={mailData.department}
+                                    onConfirm={handleConfirmMail}
+                                    onCancel={handleCancelMail}
+                                    status={inquiryStep === 'mail_sent' ? 'sent' : inquiryStep === 'mail_sending' ? 'sending' : 'preview'}
                                 />
                             )}
                         </ChatContainer>
