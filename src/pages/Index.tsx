@@ -4,7 +4,6 @@ import { CollegeInfo } from '@/components/CollegeInfo';
 import { ContactCard } from '@/components/ContactCard';
 import { RecruiterMarquee } from '@/components/RecruiterMarquee';
 import { AdmissionSupport } from '@/components/AdmissionSupport';
-import { InquiryPreview } from '@/components/chat/InquiryPreview';
 import { MailPreview } from '@/components/chat/MailPreview';
 import type { Message } from '@/types/chat';
 import { generateCollegeResponse, QUICK_QUESTIONS } from '@/data/collegeData';
@@ -15,19 +14,17 @@ import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
 import { Footer } from '@/components/Footer';
 
-type InquiryStep = 'idle' | 'collecting_name' | 'collecting_email' | 'collecting_message' | 'preview' | 'sending' | 'sent' | 'mail_preview' | 'mail_sending' | 'mail_sent';
+type InquiryStep = 'idle' | 'mail_preview' | 'mail_sending' | 'mail_sent';
 
 export default function Index() {
     const [messages, setMessages] = useState<Message[]>([]);
     const [isTyping, setIsTyping] = useState(false);
     const [inquiryStep, setInquiryStep] = useState<InquiryStep>('idle');
-    const [inquiryData, setInquiryData] = useState({ name: '', email: '', message: '' });
     const [mailData, setMailData] = useState({ draft: '', message: '', department: '' });
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const [_sessionId, setSessionId] = useState<string>('');
 
-    // Trigger keywords for the inquiry flow
-    const INQUIRY_TRIGGERS = ["send email", "contact office", "direct message", "email college", "leave a message", "talk to human"];
+
 
     useEffect(() => {
         setSessionId(getSessionId());
@@ -54,55 +51,7 @@ export default function Index() {
         };
         setMessages(prev => [...prev, userMsg]);
 
-        // 1. Check if we should start the inquiry flow
-        const shouldStartInquiry = INQUIRY_TRIGGERS.some(trigger => text.toLowerCase().includes(trigger));
-
-        if (shouldStartInquiry && inquiryStep === 'idle') {
-            setIsTyping(true);
-            setTimeout(() => {
-                setInquiryStep('collecting_name');
-                addBotMessage("I can certainly help you with that! I'll prepare a direct inquiry for the college office.\n\nFirst, may I have your **Full Name**?");
-            }, 1000);
-            return;
-        }
-
-        // 2. State Machine for Inquiry Flow
-        if (inquiryStep !== 'idle') {
-            setIsTyping(true);
-            setTimeout(() => {
-                switch (inquiryStep) {
-                    case 'collecting_name':
-                        setInquiryData(prev => ({ ...prev, name: text }));
-                        setInquiryStep('collecting_email');
-                        addBotMessage(`Thanks, **${text}**. Now, what is your **Email Address**? (We'll use this to reply to you).`);
-                        break;
-
-                    case 'collecting_email':
-                        // Basic email validation check
-                        if (!text.includes('@') || !text.includes('.')) {
-                            addBotMessage("That doesn't look like a valid email. Please provide a valid **Email Address**.");
-                            return;
-                        }
-                        setInquiryData(prev => ({ ...prev, email: text }));
-                        setInquiryStep('collecting_message');
-                        addBotMessage("Perfect. Finally, what is your **Message** for the college? Please describe your query in detail.");
-                        break;
-
-                    case 'collecting_message':
-                        setInquiryData(prev => ({ ...prev, message: text }));
-                        setInquiryStep('preview');
-                        addBotMessage("Great! I've prepared your inquiry. Please review the details below and click **Send** when you're ready.");
-                        break;
-
-                    default:
-                        // If user types while in preview/sending/sent, just ignore or reset
-                        setIsTyping(false);
-                }
-            }, 1000);
-            return;
-        }
-
-        // 3. Standard Chat Behavior
+        // Standard Chat Behavior
         setIsTyping(true);
         const delay = 800 + Math.random() * 1200;
         setTimeout(async () => {
@@ -117,22 +66,7 @@ export default function Index() {
         }, delay);
     };
 
-    const handleConfirmInquiry = async () => {
-        setInquiryStep('sending');
-        try {
-            await api.post('/send_inquiry', inquiryData);
-            setInquiryStep('sent');
-            // Reset to idle after 5 seconds or keep as is
-            setTimeout(() => {
-                setInquiryStep('idle');
-                setInquiryData({ name: '', email: '', message: '' });
-            }, 5000);
-        } catch (error) {
-            console.error(error);
-            addBotMessage("Sorry, there was an error sending your inquiry. Please try again.");
-            setInquiryStep('preview');
-        }
-    };
+
 
     const handleConfirmMail = async () => {
         setInquiryStep('mail_sending');
@@ -162,10 +96,7 @@ export default function Index() {
         addBotMessage("You canceled the mail.");
     };
 
-    const handleEditInquiry = () => {
-        setInquiryStep('collecting_name');
-        addBotMessage("No problem! Let's start over. What is your **Full Name**?");
-    };
+
 
     return (
         <div className="min-h-screen bg-gradient-soft bg-static-blobs font-sans flex flex-col selection:bg-accent/30 overflow-x-hidden relative">
@@ -226,16 +157,8 @@ export default function Index() {
                             messages={messages}
                             isTyping={isTyping}
                             onSendMessage={handleSendMessage}
-                            disabled={inquiryStep === 'sending' || inquiryStep === 'sent'}
+                            disabled={inquiryStep === 'mail_sending' || inquiryStep === 'mail_sent'}
                         >
-                            {inquiryStep !== 'idle' && (inquiryStep === 'preview' || inquiryStep === 'sending' || inquiryStep === 'sent') && (
-                                <InquiryPreview
-                                    data={inquiryData}
-                                    onConfirm={handleConfirmInquiry}
-                                    onEdit={handleEditInquiry}
-                                    status={inquiryStep === 'sent' ? 'sent' : inquiryStep === 'sending' ? 'sending' : 'preview'}
-                                />
-                            )}
                             {inquiryStep !== 'idle' && (inquiryStep === 'mail_preview' || inquiryStep === 'mail_sending' || inquiryStep === 'mail_sent') && (
                                 <MailPreview
                                     draft={mailData.draft}
